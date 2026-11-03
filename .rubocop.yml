@@ -16,9 +16,6 @@ Style/StringLiterals:
 Style/StringLiteralsInInterpolation:
   EnforcedStyle: double_quotes
 
-Layout/LineLength:
-  Max: 100
-
 Style/Documentation:
   Exclude:
     - "test/**/*"
@@ -45,6 +42,7 @@ Metrics/ClassLength:
   Max: 200
   Exclude:
     - "test/**/*"
+    - "lib/**/*.gen.rb"
 
 Metrics/BlockLength:
   Exclude:
@@ -57,3 +55,19 @@ Metrics/ParameterLists:
 
 Minitest/MultipleAssertions:
   Max: 8
+
+# Generated plumbing: doc comments carry the spec's text verbatim, a class
+# holds every operation of its tag, and a named **options keeps the
+# YARD @param readable.
+Layout/LineLength:
+  Max: 100
+  Exclude:
+    - "lib/**/*.gen.rb"
+
+Metrics/ModuleLength:
+  Exclude:
+    - "lib/**/*.gen.rb"
+
+Style/ArgumentsForwarding:
+  Exclude:
+    - "lib/**/*.gen.rb"
