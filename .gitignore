@@ -1,0 +1,22 @@
+# Bundler
+/.bundle/
+/vendor/bundle/
+
+# Build output
+/pkg/
+/coverage/
+/doc/
+/.yardoc/
+
+# Scratch
+/.tmp/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+
+# Env
+.env
+.env.*
+!.env.example

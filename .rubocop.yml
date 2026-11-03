@@ -1,0 +1,59 @@
+plugins:
+  - rubocop-minitest
+  - rubocop-rake
+
+AllCops:
+  TargetRubyVersion: 3.3
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - "pkg/**/*"
+    - "vendor/**/*"
+
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: double_quotes
+
+Layout/LineLength:
+  Max: 100
+
+Style/Documentation:
+  Exclude:
+    - "test/**/*"
+
+# Transport and polling code reads best as one method per request phase;
+# the defaults would split it into helpers that are used exactly once.
+Metrics/MethodLength:
+  Max: 30
+  Exclude:
+    - "test/**/*"
+
+Metrics/AbcSize:
+  Max: 30
+  Exclude:
+    - "test/**/*"
+
+Metrics/CyclomaticComplexity:
+  Max: 12
+
+Metrics/PerceivedComplexity:
+  Max: 12
+
+Metrics/ClassLength:
+  Max: 200
+  Exclude:
+    - "test/**/*"
+
+Metrics/BlockLength:
+  Exclude:
+    - "Rakefile"
+    - "test/**/*"
+
+# Keyword arguments mirror the error and request fields one to one.
+Metrics/ParameterLists:
+  CountKeywordArgs: false
+
+Minitest/MultipleAssertions:
+  Max: 8
