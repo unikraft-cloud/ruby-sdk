@@ -1,0 +1,92 @@
+name: check/pr
+
+on:
+  pull_request:
+    types:
+    - opened
+    - synchronize
+    - reopened
+    - edited
+    branches:
+    - prod-staging
+    - prod-stable
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pr:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Run check-pr
+      uses: unikraft-cloud/x/.github/actions/check-pr@prod-staging
+
+  # RuboCop's verdict does not depend on the interpreter running it, so lint
+  # runs on one Ruby only.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '4.0'
+        bundler-cache: true
+
+    - name: Lint
+      run: bundle exec rake lint
+
+  # The test suite covers every supported Ruby.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby-version:
+        - '3.3'
+        - '3.4'
+        - '4.0'
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: ${{ matrix.ruby-version }}
+        bundler-cache: true
+
+    - name: Test
+      run: bundle exec rake test
+
+  # The packaged gem is checked on the oldest and the newest supported Ruby.
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby-version:
+        - '3.3'
+        - '4.0'
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: ${{ matrix.ruby-version }}
+        bundler-cache: true
+
+    - name: Build
+      run: bundle exec rake build
+
+    - name: Check the packaged gem
+      run: bundle exec rake check_package
