@@ -1,0 +1,88 @@
+name: sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: The release channel (OpenAPI spec branch) to sync from.
+        required: true
+        default: prod-staging
+        type: choice
+        options:
+        - prod-stable
+        - prod-staging
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.channel }}
+
+    # The generator, openapi-gen, is a Go program.
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version: stable
+
+    # The Makefile formats the generated Ruby with the bundled tooling.
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '4.0'
+        bundler-cache: true
+
+    - name: Generate SDK from the OpenAPI spec
+      env:
+        CHANNEL: ${{ inputs.channel }}
+      run: make generate CHANNEL="$CHANNEL"
+
+    - name: Show diff
+      run: git --no-pager diff --stat
+
+    # The release workflow derives the version from the commit history, so a
+    # sync never touches version.rb. It only has to decide whether the
+    # regenerated client differs from what is already on the branch.
+    - name: Check for changes
+      id: check
+      run: |
+        if git diff --quiet -- lib/unikraft/cloud/api \
+          && [ -z "$(git ls-files --others --exclude-standard -- lib/unikraft/cloud/api)" ]; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "lib/unikraft/cloud/api unchanged; no pull request needed."
+        else
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Create pull request
+      if: steps.check.outputs.changed == 'true'
+      uses: peter-evans/create-pull-request@v8
+      with:
+        base: ${{ inputs.channel }}
+        branch: sync/${{ inputs.channel }}
+        # A GITHUB_TOKEN-made PR would not trigger check-pr.yaml.
+        token: ${{ secrets.GH_PAT }}
+        # feat, not chore: the release only publishes for a feat or fix.
+        commit-message: "feat: Update SDK from OpenAPI spec"
+        title: "feat: Update SDK from OpenAPI spec (${{ inputs.channel }})"
+        body: |
+          Automated regeneration of the plumbing client from the
+          `${{ inputs.channel }}` OpenAPI specification.
+
+          Merging this pull request publishes a new version. The release
+          workflow derives the number from the commit history.
+        author: Unikraft Bot <monkey@unikraft.io>
+        committer: Unikraft Bot <monkey@unikraft.io>
+        signoff: true
+        add-paths: |
+          lib/unikraft/cloud/api
