@@ -12,12 +12,15 @@ lib/
     cloud.rb          # entry point: Unikraft::Cloud.new and the public requires
     cloud/
       version.rb      # VERSION = "0.0.0" placeholder, stamped by the release
+      model.rb        # Model, the base class of every generated model
       api/            # the "plumbing" layer: raw, spec-shaped
         platform/     #   GENERATED (*.gen.rb): one class per tag + models
         controlplane/ #   GENERATED (*.gen.rb)
         *.rb          #   hand-written API::Platform / API::ControlPlane containers
-      core/           # hand-written shared machinery: transport, errors,
-                      #   metros, fan-out, pagination, models
+      api.rb          # hand-written API container behind `ukc.api`
+      core/           # hand-written shared machinery: transport (http.rb),
+                      #   errors, readiness polling (ready.rb), metros,
+                      #   fan-out, pagination
       resources/      # the "porcelain" layer: hand-written idiomatic clients
 templates/            # Go templates consumed by openapi-gen to produce *.gen.rb
 test/                 # minitest suites
@@ -69,7 +72,8 @@ constructor: any object that responds to
 - `request(method:, path:, query: nil, body: nil, headers: nil, **options)`,
   returning the parsed JSON,
 - `bytes(...)`, returning the body as a binary `String`, and
-- `stream(...) { |chunk| ... }`, yielding the body in chunks.
+- `stream(...) { |event| ... }`, yielding the `data` of each server-sent
+  event parsed as JSON (an Enumerator without a block).
 
 The contract is duck-typed, so a plugin gem needs no dependency on the SDK.
 The porcelain hands each plugin client a `Unikraft::Cloud::Core::ApiClient`,
