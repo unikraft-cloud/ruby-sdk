@@ -4,3 +4,4 @@
 # Copyright (c) 2026, Unikraft GmbH.
 
 require_relative "cloud/version"
+require_relative "cloud/core/errors"
