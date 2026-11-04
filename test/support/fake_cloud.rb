@@ -84,4 +84,40 @@ class FakeCloud
 
   def paths = calls.map(&:path)
   def verbs = calls.map(&:verb)
+
+  # A developer's real UKC_METRO or UKC_TOKEN would change what the porcelain
+  # tests exercise, so they are cleared around each test.
+  module Helpers
+    def setup
+      super
+      @saved_env = ENV.to_h.slice("UKC_METRO", "UKC_TOKEN")
+      ENV.delete("UKC_METRO")
+      ENV.delete("UKC_TOKEN")
+    end
+
+    def teardown
+      ENV.delete("UKC_METRO") # a test may have set one the environment lacked
+      ENV.delete("UKC_TOKEN")
+      @saved_env.each { |k, v| ENV[k] = v }
+      super
+    end
+
+    def ok(data = {}) = FakeCloud.ok(data)
+
+    # A client over a FakeCloud routed by the block; the cloud is @cloud.
+    def client(**, &)
+      @cloud = FakeCloud.new(&)
+      Unikraft::Cloud.new(token: "t", transport: @cloud.transport, **)
+    end
+
+    # Answers as if every metro listed holds a resource under `key`, and
+    # the control plane reports those metros.
+    def everywhere(codes, key: :instances, **opts)
+      client(**opts) do |call|
+        next FakeCloud.metros(*codes) if call.path == "/v1/metros"
+
+        ok(key => [{ uuid: "u-#{call.metro}", name: "web", state: "running" }])
+      end
+    end
+  end
 end
