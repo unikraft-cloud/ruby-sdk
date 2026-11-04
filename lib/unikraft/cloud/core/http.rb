@@ -12,6 +12,7 @@ require "openssl"
 require "uri"
 
 require_relative "errors"
+require_relative "pool"
 require_relative "url"
 require_relative "../version"
 
@@ -20,7 +21,13 @@ module Unikraft
     module Core
       # Transport for one base URL. Performs authenticated requests and
       # returns the parsed response envelope. Raises {Unikraft::Cloud::Error}
-      # on network failures and non-2xx responses. It never retries.
+      # on network failures and non-2xx responses. It never retries, except
+      # to resend an idempotent request once when a reused keep-alive
+      # connection turns out stale (see CONTRIBUTING.md).
+      #
+      # Connections are kept alive and reused across calls, also from
+      # several threads at once; see {#close} and CONTRIBUTING.md,
+      # "Connection reuse".
       #
       # It satisfies the duck-typed transport the plugin gems
       # (`unikraft-cloud-plugin-<name>-api`) take: `request`, `bytes` and
@@ -54,6 +61,18 @@ module Unikraft
           OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::ProtocolError
         ].freeze
 
+        # On a reused connection and before any response: the server
+        # closed the connection while it sat idle (EOFError is an IOError).
+        STALE_ERRORS = [IOError, Errno::ECONNRESET, Errno::EPIPE, Errno::ECONNABORTED].freeze
+
+        # Methods safe to resend after a stale connection (RFC 9110): the
+        # server may have read the first copy before it hung up.
+        IDEMPOTENT = %w[GET HEAD PUT DELETE OPTIONS].freeze
+
+        # A reused connection turned out stale; resend on a fresh one.
+        class StaleConnection < StandardError; end
+        private_constant :StaleConnection
+
         # @return [String] the base URL, without trailing slashes
         attr_reader :base_url
         # @return [String, nil] the bearer token
@@ -78,6 +97,15 @@ module Unikraft
           headers&.each { |k, v| @headers[k.to_s] = v.to_s }
           @timeout = timeout
           @proxy_from_env = proxy_from_env
+          @pool = Pool.new
+        end
+
+        # Close the idle connections. Calls made afterwards open new ones,
+        # so this is safe to call at any time, and more than once.
+        #
+        # @return [nil]
+        def close
+          @pool.close
         end
 
         # Perform a request and return its parsed JSON body (symbol keys).
@@ -120,7 +148,7 @@ module Unikraft
         # Perform a request whose response is a `text/event-stream`, and yield
         # each event's JSON payload (symbol keys) as it arrives. Returns when
         # the server closes the stream; `break` out of the block to stop early
-        # and release the connection.
+        # (that closes the connection).
         #
         # @param (see #request)
         # @yieldparam event [Hash, Array] one event's parsed `data`
@@ -143,8 +171,8 @@ module Unikraft
 
         private
 
-        # Build and send one request, and hand the response to the block while
-        # the connection is open (so a stream can be read from it).
+        # Build and send one request, and hand the response to the block (a
+        # stream while it can still be read from the connection).
         def perform(accept, method:, path:, query:, body:, headers:, **options)
           options = call_options(options)
           verb = method.to_s.upcase
@@ -157,20 +185,55 @@ module Unikraft
                 path.to_s + encode_query(query)
           uri = URI(url)
           req = build_request(verb, uri, body, headers, accept)
-          via_proxy = false
+          fresh = connection(uri)
+          via_proxy = fresh.proxy?
           begin
-            http = connection(uri, options.fetch(:timeout))
-            via_proxy = http.proxy?
-            http.start do
-              http.request(req) do |res|
-                return yield(res, url) if accept == "text/event-stream"
-
-                res.read_body
-                return yield(res, url)
-              end
-            end
+            exchange(fresh, req, options.fetch(:timeout)) { |res| yield res, url }
           rescue *NETWORK_ERRORS => e
             raise network_error(url, e, via_proxy)
+          end
+        end
+
+        # Send req on an idle connection if there is one, else on fresh.
+        def exchange(fresh, req, timeout, &)
+          # Connections are interchangeable when all of these match.
+          key = [fresh.use_ssl?, fresh.address, fresh.port, fresh.proxy_address,
+                 fresh.proxy_port, fresh.proxy_user, fresh.proxy_pass]
+          idle = @pool.checkout(key)
+          attempt(key, idle || fresh, req, timeout, reused: !idle.nil?, &)
+        rescue StaleConnection
+          attempt(key, fresh, req, timeout, reused: false, &)
+        end
+
+        # Send req on http and yield the response: a stream while it is
+        # still being read, anything else once its body is in. Puts http
+        # back in the pool only after a clean, complete exchange.
+        #
+        # Raises StaleConnection, for one resend on a fresh connection, only
+        # when an IDEMPOTENT request on a reused connection fails with a
+        # STALE_ERRORS error before any response arrived: most likely the
+        # server closed it while idle. Anything else propagates as is.
+        def attempt(key, http, req, timeout, reused:)
+          stream = req["Accept"] == "text/event-stream"
+          responded = done = false
+          configure(http, timeout)
+          http.start unless http.started?
+          result = nil
+          res = http.request(req) do |r|
+            responded = true
+            result = yield r if stream
+          end
+          done = true
+          stream ? result : yield(res)
+        rescue *STALE_ERRORS
+          raise if responded || !reused || !IDEMPOTENT.include?(req.method)
+
+          raise StaleConnection
+        ensure
+          if done && !/\bclose\b/i.match?(res["connection"].to_s)
+            @pool.checkin(key, http)
+          else
+            @pool.discard(http)
           end
         end
 
@@ -194,14 +257,20 @@ module Unikraft
           req
         end
 
-        def connection(uri, timeout)
+        def connection(uri)
           proxy = @proxy_from_env ? :ENV : nil
           http = Net::HTTP.new(uri.host, uri.port, proxy)
           http.use_ssl = uri.scheme == "https"
+          http
+        end
+
+        # Set every time: the connection may come from the pool.
+        def configure(http, timeout)
           http.open_timeout = timeout
           http.read_timeout = timeout
           http.write_timeout = timeout
-          http
+          http.keep_alive_timeout = @pool.keep_alive
+          http.max_retries = 0 # Net::HTTP would resend idempotent requests
         end
 
         # Serialise a query hash in form/explode style.

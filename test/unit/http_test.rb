@@ -184,4 +184,139 @@ class HttpTest < Minitest::Test
     assert_equal 401, err.status
     assert_equal "unauthorized", err.message
   end
+
+  def test_reuses_one_connection_for_sequential_calls
+    3.times { @server.respond(body: "{}") }
+    @client.request(method: :get, path: "/a")
+    @client.bytes(method: :get, path: "/b")
+    @client.request(method: :post, path: "/c", body: {})
+
+    assert_equal 1, @server.accepts
+  end
+
+  def test_concurrent_calls_never_share_a_connection
+    8.times { @server.respond(body: '{"ok":true}', delay: 0.1) }
+    2.times do
+      results = Array.new(4) { Thread.new { @client.request(method: :get, path: "/") } }
+                     .map(&:value)
+
+      assert_equal [{ ok: true }] * 4, results
+      # The second round reuses the first round's connections.
+      assert_equal 4, @server.accepts
+    end
+  end
+
+  def test_a_stale_reused_connection_is_resent_once_on_a_fresh_one
+    @server.respond(body: "{}").respond(drop: true).respond(body: '{"n":2}')
+    @client.request(method: :get, path: "/")
+
+    assert_equal({ n: 2 }, @client.request(method: :get, path: "/x"))
+    assert_equal [1, 1, 2], @server.requests.map(&:conn)
+  end
+
+  def test_a_non_idempotent_request_is_never_resent
+    %i[post patch].each do |verb|
+      server = FakeServer.new.respond(body: "{}").respond(drop: true)
+      client = ApiClient.new(base_url: server.url, proxy_from_env: false)
+      client.request(method: :get, path: "/")
+      err = assert_raises(Error) { client.request(method: verb, path: "/x", body: {}) }
+
+      assert_equal :network, err.kind
+      assert_equal 2, server.requests.size, verb
+    ensure
+      server&.close
+    end
+  end
+
+  def test_a_fresh_connection_is_never_resent
+    @server.respond(drop: true)
+    err = assert_raises(Error) { @client.request(method: :get, path: "/") }
+
+    assert_equal :network, err.kind
+    assert_kind_of EOFError, err.cause
+    assert_equal 1, @server.requests.size
+  end
+
+  def test_the_resend_is_not_resent_again
+    @server.respond(body: "{}").respond(drop: true).respond(drop: true)
+    @client.request(method: :get, path: "/")
+    err = assert_raises(Error) { @client.request(method: :get, path: "/") }
+
+    assert_equal :network, err.kind
+    assert_equal 3, @server.requests.size
+  end
+
+  def test_a_timeout_on_a_reused_connection_is_not_resent
+    @server.respond(body: "{}").respond(body: "{}", delay: 0.5)
+    @client.request(method: :get, path: "/")
+    err = assert_raises(Error) { @client.request(method: :get, path: "/", timeout: 0.05) }
+
+    assert_equal :network, err.kind
+    assert_kind_of Net::ReadTimeout, err.cause
+    assert_equal 2, @server.requests.size
+  end
+
+  def test_idle_connections_expire
+    @client.instance_variable_set(:@pool, Unikraft::Cloud::Core::Pool.new(keep_alive: 0.05))
+    2.times { @server.respond(body: "{}") }
+    @client.request(method: :get, path: "/")
+    sleep 0.1
+    @client.request(method: :get, path: "/")
+
+    assert_equal 2, @server.accepts
+  end
+
+  def test_close_drops_idle_connections_and_the_client_stays_usable
+    2.times { @server.respond(body: "{}") }
+    @client.request(method: :get, path: "/")
+    @client.close
+    @client.close
+
+    assert_empty idle_connections
+    @client.request(method: :get, path: "/")
+
+    assert_equal 2, @server.accepts
+  end
+
+  def test_connection_close_is_honoured
+    @server.respond(body: "{}", close: true).respond(body: "{}")
+    @client.request(method: :get, path: "/")
+
+    assert_empty idle_connections
+    @client.request(method: :get, path: "/")
+
+    assert_equal 2, @server.accepts
+  end
+
+  def test_an_http_error_keeps_the_connection
+    @server.respond(status: 404, body: "{}").respond(body: "{}")
+    assert_raises(Error) { @client.request(method: :get, path: "/") }
+    @client.request(method: :get, path: "/")
+
+    assert_equal 1, @server.accepts
+  end
+
+  def test_a_stream_left_early_closes_its_connection
+    @server.respond(chunks: ["data: 1\n\n", "data: 2\n\n"]).respond(body: "{}")
+
+    assert_equal 1, @client.stream(method: :get, path: "/s").first
+    assert_empty idle_connections
+    @client.request(method: :get, path: "/")
+
+    assert_equal 2, @server.accepts
+  end
+
+  def test_a_finished_stream_returns_its_connection
+    @server.respond(chunks: ["data: 1\n\n"]).respond(body: "{}")
+    @client.stream(method: :get, path: "/s").to_a
+    @client.request(method: :get, path: "/")
+
+    assert_equal 1, @server.accepts
+  end
+
+  private
+
+  def idle_connections
+    @client.instance_variable_get(:@pool).instance_variable_get(:@idle).values.flatten
+  end
 end

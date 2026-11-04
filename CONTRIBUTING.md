@@ -89,6 +89,32 @@ plugin gem. Two rules follow:
 `ApiClient` must not rely on a keyword the contract does not declare. Ruby
 checks none of this ahead of time, so only the tests can see that drift.
 
+### Connection reuse
+
+`ApiClient` keeps finished connections alive in a per-client pool
+(`core/pool.rb`), keyed by scheme, host, port and proxy, so a per-call
+`base_url:` gets its own connections. A thread checks a connection out for
+the length of one call and finds a new one if none is idle, so clients are
+safe to share across threads and no two threads ever share a connection. At
+most 8 connections per key stay idle, for at most 5 seconds. A connection
+that saw an error, answered `Connection: close`, or carried a stream that
+was left early is closed rather than put back. `ApiClient#close` closes the
+idle ones; the client stays usable. A forked child drops, without closing,
+the connections it inherited.
+
+The transport sends each request once. The one exception is not a retry: a
+server may close an idle keep-alive connection just as it is reused, and the
+request then fails with `EOFError`, `IOError`, `ECONNRESET`, `EPIPE` or
+`ECONNABORTED` before any response arrives. Only in that case, only for a
+reused connection, and only for an idempotent method (`GET`, `HEAD`, `PUT`,
+`DELETE`, `OPTIONS`, as in RFC 9110), the request is sent once more on a
+fresh connection. The server may have read the first copy before it hung
+up, but sending an idempotent request twice has the same effect as sending
+it once. `POST` and `PATCH` are never resent: a create could run twice. A
+failure on a fresh connection, a timeout, or any failure after a response
+began is raised as is. Net::HTTP's own resend of idempotent requests is
+turned off.
+
 ## Prerequisites
 
 - Ruby 3.3+ (CI covers 3.3, 3.4 and 4.0)
