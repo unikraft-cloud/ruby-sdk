@@ -25,6 +25,8 @@ module Unikraft
       # @return [Resources::ServiceGroups] service groups (load-balanced
       #   networking)
       attr_reader :services
+      # @return [Resources::Certificates] TLS certificates
+      attr_reader :certificates
 
       # @api private
       def initialize(session, scope, transport = session.transport)
@@ -34,6 +36,7 @@ module Unikraft
         @instances = Resources::Instances.new(session, scope, transport)
         @volumes = Resources::Volumes.new(session, scope, transport)
         @services = Resources::ServiceGroups.new(session, scope, transport)
+        @certificates = Resources::Certificates.new(session, scope, transport)
       end
 
       def inspect = "#<#{self.class.name} scope=#{@scope.inspect}>"
