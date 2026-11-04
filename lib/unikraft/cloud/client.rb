@@ -20,6 +20,8 @@ module Unikraft
       attr_reader :scope
       # @return [Resources::Instances] instances (microVMs)
       attr_reader :instances
+      # @return [Resources::Volumes] persistent volumes
+      attr_reader :volumes
 
       # @api private
       def initialize(session, scope, transport = session.transport)
@@ -27,6 +29,7 @@ module Unikraft
         @scope = scope
         @transport = transport
         @instances = Resources::Instances.new(session, scope, transport)
+        @volumes = Resources::Volumes.new(session, scope, transport)
       end
 
       def inspect = "#<#{self.class.name} scope=#{@scope.inspect}>"
