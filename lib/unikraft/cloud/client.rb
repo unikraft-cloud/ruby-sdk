@@ -22,6 +22,9 @@ module Unikraft
       attr_reader :instances
       # @return [Resources::Volumes] persistent volumes
       attr_reader :volumes
+      # @return [Resources::ServiceGroups] service groups (load-balanced
+      #   networking)
+      attr_reader :services
 
       # @api private
       def initialize(session, scope, transport = session.transport)
@@ -30,6 +33,7 @@ module Unikraft
         @transport = transport
         @instances = Resources::Instances.new(session, scope, transport)
         @volumes = Resources::Volumes.new(session, scope, transport)
+        @services = Resources::ServiceGroups.new(session, scope, transport)
       end
 
       def inspect = "#<#{self.class.name} scope=#{@scope.inspect}>"
