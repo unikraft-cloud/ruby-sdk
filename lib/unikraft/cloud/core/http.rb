@@ -100,13 +100,14 @@ module Unikraft
           @pool = Pool.new
         end
 
+        # Leaves out the token and headers, so echoing what holds it is safe.
+        def inspect = "#<#{self.class.name} base_url=#{@base_url.inspect}>"
+
         # Close the idle connections. Calls made afterwards open new ones,
         # so this is safe to call at any time, and more than once.
         #
         # @return [nil]
-        def close
-          @pool.close
-        end
+        def close = @pool.close
 
         # Perform a request and return its parsed JSON body (symbol keys).
         #
