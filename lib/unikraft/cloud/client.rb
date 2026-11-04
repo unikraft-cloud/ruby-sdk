@@ -18,12 +18,15 @@ module Unikraft
       attr_reader :session
       # @return [:all, Array<String>] the metros these clients cover
       attr_reader :scope
+      # @return [Resources::Instances] instances (microVMs)
+      attr_reader :instances
 
       # @api private
       def initialize(session, scope, transport = session.transport)
         @session = session
         @scope = scope
         @transport = transport
+        @instances = Resources::Instances.new(session, scope, transport)
       end
 
       def inspect = "#<#{self.class.name} scope=#{@scope.inspect}>"
