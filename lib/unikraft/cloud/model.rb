@@ -104,6 +104,16 @@ module Unikraft
         @values.transform_values { |v| plain(v) }
       end
 
+      # Pattern matching on the fields, and on the `metro` tag when set.
+      #
+      # @example
+      #   case inst
+      #   in { state: "running", metro: "fra" } then ...
+      #   end
+      def deconstruct_keys(_keys)
+        @metro ? @values.merge(metro: @metro) : @values
+      end
+
       # @return [String]
       def to_json(*)
         to_h.to_json(*)
