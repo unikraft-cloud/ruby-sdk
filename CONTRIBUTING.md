@@ -124,6 +124,22 @@ turned off.
 bundle install
 ```
 
+### A locally built plugin gem
+
+The SDK depends on `unikraft-cloud-plugin-sandbox-api`. To work against a
+build of it that is not on RubyGems yet, build it with the generator in
+[plugin-sdk] (its README says how), install the `.gem` into the gem path the
+bundle reads, and resolve without the index:
+
+```sh
+gem install --local --no-document path/to/unikraft-cloud-plugin-sandbox-api-<version>.gem
+bundle install --local
+```
+
+`Gemfile.lock` then records it as an ordinary RubyGems dependency, so do not
+add a `path:` source to the `Gemfile`. `rake check_package` installs the
+plugin gems from the bundle's gem cache, so it needs no index either.
+
 ## Common tasks
 
 ```sh

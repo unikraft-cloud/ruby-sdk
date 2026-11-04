@@ -30,10 +30,13 @@ RuboCop::RakeTask.new(:lint)
 desc "Install the built gem into a temporary GEM_HOME and require it"
 task check_package: :build do
   gem = Dir["pkg/unikraft-cloud-*.gem"].max_by { |f| File.mtime(f) }
+  # The plugin gems come from the bundle's own cache, so the check needs no
+  # index and also passes with a locally built plugin gem.
+  plugins = Bundler.load.specs.select { |s| s.name.start_with?("unikraft-cloud-plugin-") }
   Dir.mktmpdir do |home|
     env = { "GEM_HOME" => home, "GEM_PATH" => home }
     Bundler.with_unbundled_env do
-      sh env, "gem", "install", "--local", "--no-document", gem
+      sh env, "gem", "install", "--local", "--no-document", *plugins.map(&:cache_file), gem
       sh env, RbConfig.ruby, "-e",
          'require "unikraft/cloud"; puts "unikraft-cloud " + Unikraft::Cloud::VERSION'
     end
