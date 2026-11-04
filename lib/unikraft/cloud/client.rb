@@ -27,6 +27,8 @@ module Unikraft
       attr_reader :services
       # @return [Resources::Certificates] TLS certificates
       attr_reader :certificates
+      # @return [Resources::Users] users and quotas
+      attr_reader :users
 
       # @api private
       def initialize(session, scope, transport = session.transport)
@@ -37,6 +39,7 @@ module Unikraft
         @volumes = Resources::Volumes.new(session, scope, transport)
         @services = Resources::ServiceGroups.new(session, scope, transport)
         @certificates = Resources::Certificates.new(session, scope, transport)
+        @users = Resources::Users.new(session, scope, transport)
       end
 
       def inspect = "#<#{self.class.name} scope=#{@scope.inspect}>"
