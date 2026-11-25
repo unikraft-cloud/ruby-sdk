@@ -443,6 +443,7 @@ ukc.instances.stop([{ name: "web" }, { uuid: "550e8400-e29b-41d4-a716-4466554400
 | `ukc.services`     | `create`, `get`, `where`, `list`, `each`, `update`, `edit`, `delete`                                       |
 | `ukc.certificates` | `create`, `get`, `where`, `list`, `each`, `update`, `delete`                                               |
 | `ukc.users`        | `quotas`, `quotas(uuid:)`                                                                                 |
+| `ukc.metro(m).sandboxes` | `create` (with a block), `get`, `list`, `each`; see [Sandboxes](#sandboxes)                           |
 
 Handles add the per-resource operations: `reload`, `start`, `stop`,
 `suspend`, `delete`, `update`, `edit`, `wait`, `logs`, `metrics`, `history`
@@ -462,6 +463,71 @@ ukc.api.platform.images.get_images
 ```
 
 See [`examples/`](./examples) for complete programs.
+
+## Sandboxes
+
+A sandbox is a virtual machine that runs whatever command you hand it: an
+instance with the sandbox plugin attached. It lives in one metro, so it hangs
+off a metro scope. With a block, `create` deletes the sandbox when the block
+returns, however it returns:
+
+```ruby
+Unikraft::Cloud.open do |ukc|
+  ukc.metro(:fra).sandboxes.create(memory_mb: 1024) do |sb|
+    res = sb.run("echo hello")             # a shell line
+    res.stdout                             # => "hello\n"
+    sb.run("ls", "-la", cwd: "/tmp").success?  # an argument vector
+
+    sb.files.write("/work/a.txt", "hello\n")
+    sb.files.read("/work/a.txt")           # => "hello\n" (binary)
+
+    sb.instance.update(memory_mb: 2048)    # it is a real instance
+  end
+end
+```
+
+`Unikraft::Cloud::Sandbox.create` and `.connect` do the same without a
+client in hand: they build one from `token:` (or `UKC_TOKEN`), `metro:` (or
+`UKC_METRO`) and the other `Unikraft::Cloud.new` options, or borrow one as
+`client:`.
+
+- **Creating.** The spec is what `instances.create` takes, plus `rom:` and
+  `plugin_name:`. The image defaults to `UKC_SANDBOX_IMAGE`, else
+  `debian-slim:latest`; memory to 2048 MB; `autokill` to five minutes of
+  stopped time. `create` waits for the machine (`boot_within:`, 30 s) and
+  then for the plugin (`ready: { within: 60 }`). A failed wait deletes the
+  machine and names the likely cause; `ready: false` skips the waits and
+  keeps a broken sandbox for inspection. A `template:`, `branch_from:` or
+  `checkpoint:` brings its own image, memory and plugin.
+- **Reattaching.** `sandboxes.get(uuid:)` and `Sandbox.connect(uuid:,
+  metro:)` never wait and never delete; call `sb.ready` after a start or a
+  resume. `sandboxes.list` and `each` are the instance list, filtered to
+  those carrying the plugin.
+- **Commands.** `run` waits and returns a `Result` (`stdout`, `stderr`,
+  `exitcode`, `success?`); a failing command is not an exception, and a
+  `within:` that runs out leaves `exitcode` nil and the command running.
+  `spawn` returns a `Command` at once:
+
+  ```ruby
+  cat = sb.spawn("cat", cwd: "/work", env: { "LANG" => "C" })
+  cat.write("first line\n").close_write    # standard input, like an IO
+  cat.wait(within: 10)
+  cat.logs.stdout                          # => "first line\n"
+  cat.read(:stdout, offset: -4096)         # the raw tail, binary
+  sb.spawn("sleep 600").signal(:TERM)
+  ```
+
+- **Files.** `sb.files.read`, `write` (`append:`), `mkdir` (parents by
+  default) and `upload(dir, filename, data)`. Data is a String or anything
+  with `read`; a binary String travels as bytes, any other as UTF-8 text.
+
+As with `instance.wait`, `within:` is how long a wait may take, and
+`timeout:` is only ever the HTTP timeout of a request. A request held open
+for a wait has its read timeout stretched to cover it, unless `timeout:`
+says otherwise.
+
+`sb.api` is the raw plugin client (`sb.api.commands`, `sb.api.fs`) from the
+`unikraft-cloud-plugin-sandbox-api` gem, pinned to this sandbox.
 
 ## Errors
 

@@ -34,8 +34,14 @@ class FakeCloud
                                base_url: options[:base_url] || @base_url,
                                params: FakeCloud.params(query),
                                body: body.nil? ? nil : JSON.parse(JSON.generate(body)),
-                               options: options.merge(headers:).compact))
+                               options: headers ? options.merge(headers:) : options))
     end
+
+    # Raw bodies: the route answers a String, returned as binary.
+    def bytes(**) = request(**)
+
+    # No fake streams yet; present so the plugin gems accept the transport.
+    def stream(**) = raise(NotImplementedError, "FakeCloud does not stream")
 
     def close = @cloud.closed << @base_url
   end
@@ -75,6 +81,8 @@ class FakeCloud
     @mutex.synchronize { @calls << call }
     answer = @route.call(call)
     status, body = answer.is_a?(Array) ? answer : [200, answer]
+    return body.b if body.is_a?(String) && status < 300
+
     json = JSON.parse(JSON.generate(body), symbolize_names: true)
     return json if status < 300
 

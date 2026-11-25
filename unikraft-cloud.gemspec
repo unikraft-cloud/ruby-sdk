@@ -23,4 +23,7 @@ Gem::Specification.new do |spec|
                  .split("\x0")
                  .select { |f| f.start_with?("lib/", "README", "LICENSE") }
   spec.require_paths = ["lib"]
+
+  # The generated plumbing of the sandbox plugin, which `sandboxes` wraps.
+  spec.add_dependency "unikraft-cloud-plugin-sandbox-api", "~> 1.0"
 end

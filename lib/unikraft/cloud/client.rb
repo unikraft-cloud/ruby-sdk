@@ -49,19 +49,24 @@ module Unikraft
     # metro is known, so `get(name: ...).suspend` is one request.
     #
     # A sandbox lives in exactly one metro, so `sandboxes` belongs here rather
-    # than on {Scope}, built in {#initialize} from `session` and `endpoint`.
+    # than on {Scope}.
     class MetroScope < Scope
       # @return [Core::Endpoint] the metro these clients are pinned to
       attr_reader :endpoint
       # @return [API] the raw API surfaces, the platform one pinned to this
       #   metro
       attr_reader :api
+      # @return [Resources::Sandboxes] virtual machines that run the commands
+      #   they are handed
+      attr_reader :sandboxes
 
       # @api private
       def initialize(session, endpoint)
-        super(session, [endpoint.metro].freeze, session.transport(endpoint.base_url))
+        transport = session.transport(endpoint.base_url)
+        super(session, [endpoint.metro].freeze, transport)
         @endpoint = endpoint
         @api = session.api(endpoint.base_url)
+        @sandboxes = Resources::Sandboxes.new(session, @scope, transport)
       end
     end
 
