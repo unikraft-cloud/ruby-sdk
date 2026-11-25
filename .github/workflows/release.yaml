@@ -30,7 +30,9 @@ name: release
 # publishing until the RubyGems side is updated to match. Unlike npm,
 # RubyGems accepts a *pending* trusted publisher for a gem that does not exist
 # yet, so the first release needs no manual push: register this repository
-# and this workflow file as a pending publisher of unikraft-cloud, then push.
+# and this workflow file as a pending publisher of unikraft-cloud, set the
+# RUBYGEMS_OWNER_ID repository variable to the ID of the account that
+# registered it, then push.
 on:
   push:
     branches:
@@ -223,10 +225,15 @@ jobs:
         gem build "$GEM_NAME.gemspec" --output "pkg/$GEM_NAME-$VERSION.gem"
 
     # Exchanges the OIDC token for a short-lived API key in GEM_HOST_API_KEY.
-    # The action has no moving major tag, so the version is exact.
+    # The action has no moving major tag, so the version is exact. `owner`
+    # (the RubyGems.org account ID on its Pending Trusted Publishers page) is
+    # required only while the gem does not exist yet; set it as the
+    # RUBYGEMS_OWNER_ID repository variable.
     - name: Configure RubyGems credentials
       if: steps.version.outputs.publish == 'true'
-      uses: rubygems/configure-rubygems-credentials@v2.1.0
+      uses: rubygems/configure-rubygems-credentials@v2.2.0
+      with:
+        owner: ${{ vars.RUBYGEMS_OWNER_ID }}
 
     - name: Publish to RubyGems
       if: steps.version.outputs.publish == 'true'
